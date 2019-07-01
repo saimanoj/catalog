@@ -1,9 +1,16 @@
-from flask import Flask, render_template, request, redirect, jsonify, url_for
+from flask import (Flask,
+                   render_template,
+                   request,
+                   redirect,
+                   jsonify,
+                   url_for)
 from flask import make_response, flash
 from flask import session as login_session
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from functools import wraps
 
 from oauth2client.client import flow_from_clientsecrets, FlowExchangeError
 from database_setup import Base, User, Category, Item
@@ -26,8 +33,21 @@ DBSession = sessionmaker(bind=engine)
 session = DBSession()
 
 
+def login_required(f):
+    '''checks if user is loggedin or not'''
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'username' in login_session:
+            return f(*args, **kwargs)
+        else:
+            flash("You are not allowed to access there")
+            return redirect('/login')
+    return decorated_function
+
+
 @app.route('/login')
 def showLogin():
+    ''' page to login'''
     state = ''.join(random.choice(string.ascii_uppercase + string.digits)
                     for x in xrange(32))
     login_session['state'] = state
@@ -36,6 +56,7 @@ def showLogin():
 
 @app.route('/gconnect', methods=['POST'])
 def gconnect():
+    # Google login for user authentication
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
     # Validate state token
@@ -168,6 +189,7 @@ def timepass():
 
 @app.route('/gdisconnect')
 def gdisconnect():
+    # Only disconnects a connected user.
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
 
@@ -181,10 +203,10 @@ def gdisconnect():
             json.dumps('Current user not connected.'), 401)
         response.headers['Content-Type'] = 'application/json'
         return response
-    url = 'https://accounts.google.com/o/oauth2/revoke?token=%s' % login_session['access_token']
+    url = 'https://accounts.google.com/o/oauth2/revoke?token=%s' % login_session['access_token']  # NOQA
     h = httplib2.Http()
     result = \
-        h.request(uri=url, method='POST', body=None, headers={'content-type': 'application/x-www-form-urlencoded'})[0]
+        h.request(uri=url, method='POST', body=None, headers={'content-type': 'application/x-www-form-urlencoded'})[0]  # NOQA
 
     print url
     print 'result is '
@@ -211,7 +233,11 @@ def gdisconnect():
 @app.route('/')
 @app.route('/category/')
 def showCategory():
-    """Show all Categories"""
+    """Show all Categories
+
+    Returns:
+        on GET: page to show all catergory list
+    """
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
     categories = session.query(Category).all()
@@ -219,12 +245,16 @@ def showCategory():
 
 
 @app.route('/category/new/', methods=['GET', 'POST'])
+@login_required
 def newCategory():
-    """Add new Category"""
+    """Add new Category
+
+    Returns:
+        on GET: page to create a category
+        on POST: storing category to table
+    """
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
-    if 'username' not in login_session:
-        return redirect('/login')
 
     user_id = login_session['user_id']
 
@@ -239,42 +269,50 @@ def newCategory():
 
 
 @app.route('/category/<int:category_id>/edit/', methods=['GET', 'POST'])
+@login_required
 def editCategory(category_id):
-    """Edit Category"""
+    """Edit Category
+
+    Returns:
+        on GET: page to edit category
+        on POST: store edited category
+    """
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
-    if 'username' not in login_session:
-        return redirect('/login')
 
     category = session.query(Category).filter_by(id=category_id).one()
 
     if category.user_id != login_session['user_id']:
-        flash('Category was created by another user and can only be edited by creator')
+        flash('Category was created by another user and can only be edited by creator')  # NOQA
         return redirect(url_for('showCategory'))
 
     if request.method == 'POST':
         if request.form['name']:
             category.name = request.form['name']
-            session.add(category)
-            session.commit()
-            flash('Category Successfully Updated %s' % category.name)
-            return redirect(url_for('showCategory'))
+        session.add(category)
+        session.commit()
+        flash('Category Successfully Updated %s' % category.name)
+        return redirect(url_for('showCategory'))
     else:
         return render_template('category_edit.html', category=category)
 
 
 @app.route('/category/<int:category_id>/delete/', methods=['GET', 'POST'])
+@login_required
 def deleteCategory(category_id):
-    """Delete Category"""
+    """Delete Category
+
+    Returns:
+        on GET: page to delete category
+        on POST: delete's category from table
+    """
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
-    if 'username' not in login_session:
-        return redirect('/login')
 
     category = session.query(Category).filter_by(id=category_id).one()
 
     if category.user_id != login_session['user_id']:
-        flash('Category was created by another user and can only be deleted by creator')
+        flash('Category was created by another user and can only be deleted by creator')  # NOQA
         return redirect(url_for('showCategory'))
 
     if request.method == 'POST':
@@ -291,7 +329,11 @@ def deleteCategory(category_id):
 @app.route('/category/<int:category_id>/')
 @app.route('/category/<int:category_id>/item/')
 def showItem(category_id):
-    """Show all Items"""
+    """Show all Items
+
+    Returns:
+        on GET: page to show all items list in a category
+    """
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
     category = session.query(Category).filter_by(id=category_id).one()
@@ -301,12 +343,16 @@ def showItem(category_id):
 
 
 @app.route('/category/<int:category_id>/item/new', methods=['GET', 'POST'])
+@login_required
 def newItem(category_id):
-    """Add new Item"""
+    """Add new Item
+
+    Returns:
+        on GET: page to create a item
+        on POST: storing item to table
+    """
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
-    if 'username' not in login_session:
-        return redirect('/login')
 
     user_id = login_session['user_id']
 
@@ -327,17 +373,21 @@ def newItem(category_id):
 
 @app.route('/category/<int:category_id>/item/<int:item_id>/edit',
            methods=['GET', 'POST'])
+@login_required
 def editItem(category_id, item_id):
-    """Edit Item"""
+    """Edit Item
+
+    Returns:
+        on GET: page to edit category
+        on POST: store edited category
+    """
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
-    if 'username' not in login_session:
-        return redirect('/login')
 
     item = session.query(Item).filter_by(id=item_id).one()
 
     if item.user_id != login_session['user_id']:
-        flash('Item was created by another user and can only be edited by creator')
+        flash('Item was created by another user and can only be edited by creator')  # NOQA
         return redirect(url_for('showItem', category_id=category_id))
 
     if request.method == 'POST':
@@ -358,17 +408,21 @@ def editItem(category_id, item_id):
 
 @app.route('/category/<int:category_id>/item/<int:item_id>/delete',
            methods=['GET', 'POST'])
+@login_required
 def deleteItem(category_id, item_id):
-    """Delete Item"""
+    """Delete Item
+
+    Returns:
+        on GET: page to delete category
+        on POST: delete's category from table
+    """
     DBSession = sessionmaker(bind=engine)
     session = DBSession()
-    if 'username' not in login_session:
-        return redirect('/login')
 
     item = session.query(Item).filter_by(id=item_id).one()
 
     if item.user_id != login_session['user_id']:
-        flash('Item was created by another user and can only be deleted by creator')
+        flash('Item was created by another user and can only be deleted by creator')  # NOQA
         return redirect(url_for('showItem', category_id=category_id))
 
     if request.method == 'POST':
